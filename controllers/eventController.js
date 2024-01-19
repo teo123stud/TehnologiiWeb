@@ -9,52 +9,32 @@ const isEventOpen = (eventDate, scheduledDate) => {
   console.log('Event Date Time:', eventDateTime);
   console.log('Scheduled Date Time:', scheduledDateTime);
 
-  // Compară anul, luna, ziua, ora și minutul
-  const isYearEqual = currentDate.getFullYear() === eventDateTime.getFullYear();
-  const isMonthEqual = currentDate.getMonth() === eventDateTime.getMonth();
-  const isDateEqual = currentDate.getDate() === eventDateTime.getDate();
-  const isHourEqual = currentDate.getHours() === eventDateTime.getHours();
-  const isMinutesGreaterOrEqual = currentDate.getMinutes() >= scheduledDateTime.getMinutes();
-  const isCurrentGreaterOrEqual = currentDate >= scheduledDateTime;
+  const isAfterScheduled = currentDate >= scheduledDateTime;
+  const isBeforeEvent = currentDate < eventDateTime;
 
-  console.log('isYearEqual:', isYearEqual);
-  console.log('isMonthEqual:', isMonthEqual);
-  console.log('isDateEqual:', isDateEqual);
-  console.log('isHourEqual:', isHourEqual);
-  console.log('isMinutesGreaterOrEqual:', isMinutesGreaterOrEqual);
-  console.log('isCurrentGreaterOrEqual:', isCurrentGreaterOrEqual);
+  console.log('isAfterScheduled:', isAfterScheduled);
+  console.log('isBeforeEvent:', isBeforeEvent);
 
-  // Restul codului rămâne neschimbat
-
-  return (
-    isYearEqual &&
-    isMonthEqual &&
-    isDateEqual &&
-    isHourEqual &&
-    isMinutesGreaterOrEqual &&
-    isCurrentGreaterOrEqual
-  );
+  return isAfterScheduled && isBeforeEvent;
 };
-
 
 const schedule = require('node-schedule');
 
 const scheduleEventStatusUpdate = async (eventId, scheduledDate) => {
-  // Programați actualizarea stării evenimentului să ruleze la fiecare 2 minute
-  const job = schedule.scheduleJob('*/2 * * * *', async () => {
+  // Programați actualizarea stării evenimentului să ruleze la fiecare 1 minut
+  const job = schedule.scheduleJob('*/1 * * * *', async () => {
     try {
       const event = await Event.findByPk(eventId);
 
       if (event) {
         console.log('Before update. Event Status:', event.eventStatus);
 
-        // Verificați dacă evenimentul încă nu a început
         if (isEventOpen(event.eventDate, scheduledDate)) {
-          event.update({
+          await event.update({
             eventStatus: 'OPEN',
           });
         } else {
-          event.update({
+          await event.update({
             eventStatus: 'CLOSED',
           });
         }
@@ -62,8 +42,6 @@ const scheduleEventStatusUpdate = async (eventId, scheduledDate) => {
         console.log('After update. Event Status:', event.eventStatus);
       }
 
-      // Anulați programarea după prima rulare pentru a evita repetarea
-      job.cancel();
     } catch (error) {
       console.error('Error updating event status:', error);
     }
@@ -83,26 +61,22 @@ const eventController = {
   },
 
   createEvent: async (req, res) => {
-    const { eventName, eventCode, eventDate, scheduledDate, participants } = req.body;
+    const { eventName, eventCode, eventDate, participants } = req.body;
 
     try {
-      // Verifică dacă eventDate și scheduledDate sunt valide
-      if (!eventDate || isNaN(new Date(eventDate).getTime()) || !scheduledDate || isNaN(new Date(scheduledDate).getTime())) {
-        return res.status(400).json({ error: 'Invalid eventDate or scheduledDate format' });
+
+      if (!eventDate || isNaN(new Date(eventDate).getTime())) {
+        return res.status(400).json({ error: 'Invalid eventDate format' });
       }
 
-     
-const newEvent = await Event.create({
-  eventName,
-  eventCode,
-  eventDate: new Date(eventDate),
-  eventStatus: 'CLOSED', // Setează implicit la CLOSED la crearea evenimentului
-});
+      const newEvent = await Event.create({
+        eventName,
+        eventCode,
+        eventDate: new Date(eventDate),
+        eventStatus: 'OPEN', // setează starea inițiala ca 'OPEN'
+      });
 
-// Restul codului rămâne neschimbat
-
-
-      // Adăugare participanți la eveniment
+    
       if (participants && participants.length > 0) {
         await Promise.all(
           participants.map(async (participantName) => {
@@ -121,44 +95,29 @@ const newEvent = await Event.create({
 
       res.json(eventWithParticipants);
 
-      // Planifică actualizarea la 'OPEN' după 2 minute
+      // Planifică actualizarea la 'CLOSED' după un minut
       setTimeout(async () => {
         try {
           const updatedEvent = await Event.findByPk(newEvent.id);
           if (updatedEvent) {
-            console.log('Before update to OPEN. Event Status:', updatedEvent.eventStatus);
-  
-            // Verifică dacă evenimentul încă nu a început
-            if (isEventOpen(updatedEvent.eventDate, scheduledDate)) {
-              updatedEvent.update({
-                eventStatus: 'OPEN',
-              });
-  
-              console.log('After update to OPEN. Event Status:', updatedEvent.eventStatus);
-  
-              // Planifică revenirea la 'CLOSED' după alte 2 minute
-              setTimeout(async () => {
-                try {
-                  const closedEvent = await Event.findByPk(newEvent.id);
-                  if (closedEvent) {
-                    console.log('Before update to CLOSED. Event Status:', closedEvent.eventStatus);
-  
-                    closedEvent.update({
-                      eventStatus: 'CLOSED',
-                    });
-  
-                    console.log('After update to CLOSED. Event Status:', closedEvent.eventStatus);
-                  }
-                } catch (error) {
-                  console.error('Error updating event status to CLOSED:', error);
-                }
-              }, 2 * 60 * 1000); // Setează timeout-ul pentru revenirea la 'CLOSED'
-            }
+            console.log(
+              'Before update to CLOSED. Event Status:',
+              updatedEvent.eventStatus
+            );
+
+            await updatedEvent.update({
+              eventStatus: 'CLOSED',
+            });
+
+            console.log(
+              'After update to CLOSED. Event Status:',
+              updatedEvent.eventStatus
+            );
           }
         } catch (error) {
-          console.error('Error updating event status to OPEN:', error);
+          console.error('Error updating event status to CLOSED:', error);
         }
-      }, 2 * 60 * 1000); // Setează timeout-ul pentru actualizarea la 'OPEN'
+      }, 1 * 60 * 1000); // Setează timeout-ul pentru actualizarea la 'CLOSED'
     } catch (error) {
       console.error('Error creating event:', error);
       res.status(500).json({ error: 'Internal Server Error' });
